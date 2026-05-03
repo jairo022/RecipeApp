@@ -20,17 +20,18 @@ app.set('io', io);
 app.use(cors());
 app.use(express.json());
 
-// ========== USER SCHEMA ==========
+// ========== USER SCHEMA (NO next) ==========
 const userSchema = new mongoose.Schema({
   username: String,
   email: String,
   password: String
 });
 
-userSchema.pre('save', function(next) {
-  if (!this.isModified('password')) return next();
-  this.password = bcrypt.hashSync(this.password, 10);
-  next();
+// NO next - use synchronous hash
+userSchema.pre('save', function() {
+  if (this.isModified('password')) {
+    this.password = bcrypt.hashSync(this.password, 10);
+  }
 });
 
 const User = mongoose.model('User', userSchema);
@@ -200,7 +201,6 @@ io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
   socket.on('join:recipe', (recipeId) => {
     socket.join(`recipe_${recipeId}`);
-    console.log(`Socket ${socket.id} joined recipe ${recipeId}`);
   });
   socket.on('leave:recipe', (recipeId) => {
     socket.leave(`recipe_${recipeId}`);
