@@ -1,5 +1,5 @@
 export const environment = {
   production: false,
-  apiUrl: 'http://localhost:5001/api',
-  socketUrl: 'http://localhost:5001'
+  apiUrl: 'https://recipe-backend-5r5u.onrender.com/api',
+  socketUrl: 'https://recipe-backend-5r5u.onrender.com'
 };
