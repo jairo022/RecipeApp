@@ -32,3 +32,7 @@ A full-stack recipe sharing application where users can create, share, and comme
 
 ### Deployment
 - Render (Backend + Frontend)
+
+  ### Environment Variables
+- MongoURI: mongodb+srv://jairomanuelfr_db_user:QvKclCRhB5TVywh0@recipeappcluster.ltslbko.mongodb.net/recipe_app?retryWrites=true&w=majority&appName=RecipeAppCluster
+- JWT: my_super_secret_jwt_key_recipeapp_2025.
