@@ -11,7 +11,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: ['http://localhost:4200', 'http://localhost:5173'],
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE']
   }
 });
@@ -20,30 +20,31 @@ app.set('io', io);
 app.use(cors());
 app.use(express.json());
 
-// ========== USER SCHEMA & AUTH ==========
+// ========== USER SCHEMA ==========
 const userSchema = new mongoose.Schema({
-  username: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true }
+  username: String,
+  email: String,
+  password: String
 });
 
-userSchema.pre('save', async function(next) {
+userSchema.pre('save', function(next) {
   if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 10);
+  this.password = bcrypt.hashSync(this.password, 10);
   next();
 });
 
 const User = mongoose.model('User', userSchema);
 
-// Auth routes
+// ========== AUTH ROUTES ==========
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const { username, email, password } = req.body;
     const existing = await User.findOne({ email });
-    if (existing) return res.status(400).json({ error: 'Email already exists' });
+    if (existing) return res.status(400).json({ error: 'Email exists' });
+    
     const user = new User({ username, email, password });
     await user.save();
-    const token = jwt.sign({ userId: user._id }, 'mysecretkey');
+    const token = jwt.sign({ userId: user._id }, 'mysecret');
     res.json({ token, user: { _id: user._id, username, email } });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -55,109 +56,106 @@ app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-    const isValid = await bcrypt.compare(password, user.password);
+    
+    const isValid = bcrypt.compareSync(password, user.password);
     if (!isValid) return res.status(401).json({ error: 'Invalid credentials' });
-    const token = jwt.sign({ userId: user._id }, 'mysecretkey');
+    
+    const token = jwt.sign({ userId: user._id }, 'mysecret');
     res.json({ token, user: { _id: user._id, username: user.username, email } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ========== RECIPE SCHEMA & CRUD ==========
+// ========== RECIPE SCHEMA ==========
 const recipeSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  description: { type: String, required: true },
-  ingredients: [{ name: String, quantity: String }],
-  instructions: [String],
-  prepTime: { type: Number, default: 0 },
-  cookTime: { type: Number, default: 0 },
-  servings: { type: Number, default: 1 },
-  difficulty: { type: String, enum: ['Easy', 'Medium', 'Hard'], default: 'Medium' },
-  author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  title: String,
+  description: String,
+  ingredients: Array,
+  instructions: Array,
+  prepTime: Number,
+  cookTime: Number,
+  servings: Number,
+  difficulty: String,
+  author: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   createdAt: { type: Date, default: Date.now }
 });
 
 const Recipe = mongoose.model('Recipe', recipeSchema);
 
-const auth = (req, res, next) => {
+// ========== AUTH MIDDLEWARE ==========
+function auth(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No token' });
   try {
-    req.userId = jwt.verify(token, 'mysecretkey').userId;
+    req.userId = jwt.verify(token, 'mysecret').userId;
     next();
   } catch {
     res.status(401).json({ error: 'Invalid token' });
   }
-};
+}
 
+// ========== RECIPE CRUD ==========
 app.post('/api/recipes', auth, async (req, res) => {
   try {
     const recipe = new Recipe({ ...req.body, author: req.userId });
     await recipe.save();
     await recipe.populate('author', 'username');
     res.status(201).json(recipe);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 app.get('/api/recipes', async (req, res) => {
   try {
-    const { search } = req.query;
-    let query = {};
-    if (search) query.title = { $regex: search, $options: 'i' };
-    const recipes = await Recipe.find(query).populate('author', 'username').sort({ createdAt: -1 });
+    const recipes = await Recipe.find().populate('author', 'username').sort({ createdAt: -1 });
     res.json(recipes);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 app.get('/api/recipes/:id', async (req, res) => {
   try {
     const recipe = await Recipe.findById(req.params.id).populate('author', 'username');
-    if (!recipe) return res.status(404).json({ error: 'Recipe not found' });
+    if (!recipe) return res.status(404).json({ error: 'Not found' });
     res.json(recipe);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 app.put('/api/recipes/:id', auth, async (req, res) => {
   try {
     const recipe = await Recipe.findById(req.params.id);
-    if (!recipe) return res.status(404).json({ error: 'Recipe not found' });
-    if (recipe.author.toString() !== req.userId) {
-      return res.status(403).json({ error: 'Not authorized' });
-    }
+    if (!recipe) return res.status(404).json({ error: 'Not found' });
+    if (recipe.author.toString() !== req.userId) return res.status(403).json({ error: 'Unauthorized' });
     Object.assign(recipe, req.body);
     await recipe.save();
     res.json(recipe);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 app.delete('/api/recipes/:id', auth, async (req, res) => {
   try {
     const recipe = await Recipe.findById(req.params.id);
-    if (!recipe) return res.status(404).json({ error: 'Recipe not found' });
-    if (recipe.author.toString() !== req.userId) {
-      return res.status(403).json({ error: 'Not authorized' });
-    }
+    if (!recipe) return res.status(404).json({ error: 'Not found' });
+    if (recipe.author.toString() !== req.userId) return res.status(403).json({ error: 'Unauthorized' });
     await recipe.deleteOne();
-    res.json({ message: 'Recipe deleted' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json({ message: 'Deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// ========== COMMENT SCHEMA & CRUD ==========
+// ========== COMMENT SCHEMA ==========
 const commentSchema = new mongoose.Schema({
-  content: { type: String, required: true },
-  recipe: { type: mongoose.Schema.Types.ObjectId, ref: 'Recipe', required: true },
-  author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  content: String,
+  recipe: { type: mongoose.Schema.Types.ObjectId, ref: 'Recipe' },
+  author: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -165,72 +163,54 @@ const Comment = mongoose.model('Comment', commentSchema);
 
 app.get('/api/comments/recipe/:recipeId', async (req, res) => {
   try {
-    const comments = await Comment.find({ recipe: req.params.recipeId })
-      .populate('author', 'username')
-      .sort({ createdAt: -1 });
+    const comments = await Comment.find({ recipe: req.params.recipeId }).populate('author', 'username').sort({ createdAt: -1 });
     res.json(comments);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 app.post('/api/comments', auth, async (req, res) => {
   try {
-    const comment = new Comment({
-      content: req.body.content,
-      recipe: req.body.recipeId,
-      author: req.userId
-    });
+    const comment = new Comment({ content: req.body.content, recipe: req.body.recipeId, author: req.userId });
     await comment.save();
     await comment.populate('author', 'username');
-    
-    // Emit real-time event
     io.to(`recipe_${req.body.recipeId}`).emit('new_comment', comment);
-    
     res.status(201).json(comment);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 app.delete('/api/comments/:id', auth, async (req, res) => {
   try {
     const comment = await Comment.findById(req.params.id);
-    if (!comment) return res.status(404).json({ error: 'Comment not found' });
-    if (comment.author.toString() !== req.userId) {
-      return res.status(403).json({ error: 'Not authorized' });
-    }
+    if (!comment) return res.status(404).json({ error: 'Not found' });
+    if (comment.author.toString() !== req.userId) return res.status(403).json({ error: 'Unauthorized' });
     await comment.deleteOne();
-    res.json({ message: 'Comment deleted' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json({ message: 'Deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 // ========== SOCKET.IO ==========
 io.on('connection', (socket) => {
-  console.log('New client connected:', socket.id);
-  
+  console.log('Client connected');
   socket.on('join:recipe', (recipeId) => {
     socket.join(`recipe_${recipeId}`);
-    console.log(`Socket ${socket.id} joined recipe ${recipeId}`);
   });
-  
-  socket.on('leave:recipe', (recipeId) => {
-    socket.leave(`recipe_${recipeId}`);
-  });
-  
   socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+    console.log('Client disconnected');
   });
 });
 
-// ========== MongoDB Connection ==========
+// ========== DATABASE & SERVER ==========
 mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('MongoDB error:', err.message));
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => console.error('DB error:', err.message));
 
 const PORT = process.env.PORT || 5001;
 server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
