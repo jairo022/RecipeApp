@@ -20,7 +20,7 @@ app.set('io', io);
 app.use(cors());
 app.use(express.json());
 
-// User Schema
+// ========== USER SCHEMA ==========
 const userSchema = new mongoose.Schema({
   username: String,
   email: String,
@@ -35,7 +35,7 @@ userSchema.pre('save', function(next) {
 
 const User = mongoose.model('User', userSchema);
 
-// Auth routes - NO next, NO middleware
+// ========== AUTH ROUTES ==========
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const { username, email, password } = req.body;
@@ -64,7 +64,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Recipe Schema
+// ========== RECIPE SCHEMA ==========
 const recipeSchema = new mongoose.Schema({
   title: String,
   description: String,
@@ -80,7 +80,7 @@ const recipeSchema = new mongoose.Schema({
 
 const Recipe = mongoose.model('Recipe', recipeSchema);
 
-// Recipe CRUD - NO middleware, we check token manually
+// ========== RECIPE CRUD ==========
 app.post('/api/recipes', async (req, res) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
@@ -145,7 +145,7 @@ app.delete('/api/recipes/:id', async (req, res) => {
   }
 });
 
-// Comment Schema
+// ========== COMMENT SCHEMA ==========
 const commentSchema = new mongoose.Schema({
   content: String,
   recipe: { type: mongoose.Schema.Types.ObjectId, ref: 'Recipe' },
@@ -155,6 +155,7 @@ const commentSchema = new mongoose.Schema({
 
 const Comment = mongoose.model('Comment', commentSchema);
 
+// ========== COMMENT ROUTES ==========
 app.get('/api/comments/recipe/:recipeId', async (req, res) => {
   try {
     const comments = await Comment.find({ recipe: req.params.recipeId }).populate('author', 'username').sort({ createdAt: -1 });
@@ -194,11 +195,12 @@ app.delete('/api/comments/:id', async (req, res) => {
   }
 });
 
-// Socket.io events
+// ========== SOCKET.IO ==========
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
   socket.on('join:recipe', (recipeId) => {
     socket.join(`recipe_${recipeId}`);
+    console.log(`Socket ${socket.id} joined recipe ${recipeId}`);
   });
   socket.on('leave:recipe', (recipeId) => {
     socket.leave(`recipe_${recipeId}`);
@@ -208,7 +210,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// MongoDB connection
+// ========== DATABASE ==========
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('DB error:', err));
